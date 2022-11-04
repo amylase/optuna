@@ -1,11 +1,15 @@
 name: Speed benchmarks
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 23 * * SUN-THU'
 
 jobs:
   speed-benchmarks:
     runs-on: ubuntu-latest
+
+    # Not intended for forks.
+    if: github.repository == 'optuna/optuna'
 
     steps:
     - name: Checkout
