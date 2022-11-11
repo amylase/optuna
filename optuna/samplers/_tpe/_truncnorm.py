@@ -34,6 +34,7 @@
 import math
 import sys
 from typing import Callable
+from typing import List
 from typing import Optional
 from typing import Union
 
@@ -133,28 +134,148 @@ def _log_gauss_mass(a: float, b: float) -> float:
         return mass_case_central(a, b)
 
 
-def _bisect(f: Callable[[float], float], a: float, b: float, c: float) -> float:
-    if f(a) > c:
-        a, b = b, a
-    # TODO(amylase): Justify this constant
-    for _ in range(100):
-        m = (a + b) / 2
-        if f(m) < c:
-            a = m
-        else:
-            b = m
-    return m
+_P0 = [
+    -5.99633501014107895267e1,
+    9.80010754185999661536e1,
+    -5.66762857469070293439e1,
+    1.39312609387279679503e1,
+    -1.23916583867381258016e0,
+]
+_P1 = [
+    4.05544892305962419923,
+    3.15251094599893866154e1,
+    5.71628192246421288162e1,
+    4.40805073893200834700e1,
+    1.46849561928858024014e1,
+    2.18663306850790267539,
+    -1.40256079171354495875e-1,
+    -3.50424626827848203418e-2,
+    -8.57456785154685413611e-4,
+]
+_P2 = [
+    3.23774891776946035970,
+    6.91522889068984211695,
+    3.93881025292474443415,
+    1.33303460815807542389,
+    2.01485389549179081538e-1,
+    1.23716634817820021358e-2,
+    3.01581553508235416007e-4,
+    2.65806974686737550832e-6,
+    6.23974539184983293730e-9,
+]
+_Q0 = [
+    1.95448858338141759834e0,
+    4.67627912898881538453e0,
+    8.63602421390890590575e1,
+    -2.25462687854119370527e2,
+    2.00260212380060660359e2,
+    -8.20372256168333339912e1,
+    1.59056225126211695515e1,
+    -1.18331621121330003142e0,
+]
+_Q1 = [
+    1.57799883256466749731e1,
+    4.53907635128879210584e1,
+    4.13172038254672030440e1,
+    1.50425385692907503408e1,
+    2.50464946208309415979,
+    -1.42182922854787788574e-1,
+    -3.80806407691578277194e-2,
+    -9.33259480895457427372e-4,
+]
+_Q2 = [
+    6.02427039364742014255,
+    3.67983563856160859403,
+    1.37702099489081330271,
+    2.16236993594496635890e-1,
+    1.34204006088543189037e-2,
+    3.28014464682127739104e-4,
+    2.89247864745380683936e-6,
+    6.79019408009981274425e-9,
+]
+
+
+def _polevl(x: float, coefs: List[float], degree: int) -> float:
+    v = 0
+    for i in range(degree):
+        v += coefs[i]
+        v *= x
+    v += coefs[degree]
+    return v
+
+
+def _p1evl(x: float, coefs: List[float], degree: int) -> float:
+    v = 1
+    for i in range(degree):
+        v *= x
+        v += coefs[i]
+    return v
+
+
+def _ndtri(y0: float) -> float:
+    if y0 == 0:
+        return -math.inf
+    if y0 == 1:
+        return math.inf
+    if y0 < 0 or y0 > 1:
+        return math.nan
+
+    code = 1
+    y = y0
+    if y > (1.0 - 0.13533528323661269189):  # 0.135... = exp(-2)
+        y = 1.0 - y
+        code = 0
+
+    if y > 0.13533528323661269189:
+        y = y - 0.5
+        y2 = y * y
+        x = y + y * (y2 * _polevl(y2, _P0, 4) / _p1evl(y2, _Q0, 8))
+        x = x * 2.50662827463100050242e0  # = sqrt(2pi)
+        return x
+
+    x = math.sqrt(-2.0 * math.log(y))
+    x0 = x - math.log(x) / x
+
+    z = 1.0 / x
+    if x < 8.0:  # y > exp(-32) = 1.2664165549e-14
+        x1 = z * _polevl(z, _P1, 8) / _p1evl(z, _Q1, 8)
+    else:
+        x1 = z * _polevl(z, _P2, 8) / _p1evl(z, _Q2, 8)
+    x = x0 - x1
+    if code != 0:
+        x = -x
+    return x
+
+
+def _ndtri_exp_small_y(y: float) -> float:
+    if y >= -sys.float_info.max * 0.5:
+        x = math.sqrt(-2 * y)
+    else:
+        x = math.sqrt(2) * math.sqrt(-y)
+    x0 = x - math.log(x) / x
+    z = 1 / x
+    if x < 8.0:
+        x1 = z * _polevl(z, _P1, 8) / _p1evl(z, _Q1, 8)
+    else:
+        x1 = z * _polevl(z, _P2, 8) / _p1evl(z, _Q2, 8)
+    return x1 - x0
 
 
 def _ndtri_exp(y: float) -> float:
-    # TODO(amylase): Justify this constant
-    return _bisect(_log_ndtr, -100, +100, y)
+    if y < -sys.float_info.max:
+        return -math.inf
+    elif y < -2.0:
+        return _ndtri_exp_small_y(y)
+    elif y > math.log1p(-math.exp(-2)):
+        return -_ndtri(-math.expm1(y))
+    else:
+        return _ndtri(math.exp(y))
 
 
 @np.vectorize
 def ppf(q: float, a: float, b: float) -> float:
     if a == b:
-        return np.nan
+        return math.nan
     if q == 0:
         return a
     if q == 1:
@@ -191,9 +312,9 @@ def rvs(
 def logpdf(x: float, a: float, b: float, loc: float = 0, scale: float = 1) -> float:
     x = (x - loc) / scale
     if a == b:
-        return np.nan
+        return math.nan
     if x < a or b < x:
-        return -np.inf
+        return -math.inf
     return _norm_logpdf(x) - _log_gauss_mass(a, b)
 
 
