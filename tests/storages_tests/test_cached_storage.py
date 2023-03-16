@@ -112,8 +112,8 @@ def test_read_trials_from_remote_storage() -> None:
         directions=[StudyDirection.MINIMIZE], study_name="test-study"
     )
 
-    storage.read_trials_from_remote_storage(study_id)
+    storage._read_trials_from_remote_storage(study_id)
 
     # Non-existent study.
     with pytest.raises(KeyError):
-        storage.read_trials_from_remote_storage(study_id + 1)
+        storage._read_trials_from_remote_storage(study_id + 1)

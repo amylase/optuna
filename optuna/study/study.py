@@ -271,8 +271,6 @@ class Study:
     ) -> List[FrozenTrial]:
         if use_cache:
             if self._thread_local.cached_all_trials is None:
-                if isinstance(self._storage, _CachedStorage):
-                    self._storage.read_trials_from_remote_storage(self._study_id)
                 self._thread_local.cached_all_trials = self._storage.get_all_trials(
                     self._study_id, deepcopy=False
                 )
@@ -282,9 +280,6 @@ class Study:
             else:
                 filtered_trials = trials
             return copy.deepcopy(filtered_trials) if deepcopy else filtered_trials
-
-        if isinstance(self._storage, _CachedStorage):
-            self._storage.read_trials_from_remote_storage(self._study_id)
 
         return self._storage.get_all_trials(self._study_id, deepcopy=deepcopy, states=states)
 
@@ -531,8 +526,6 @@ class Study:
 
         # Sync storage once every trial.
         self._thread_local.cached_all_trials = None
-        if isinstance(self._storage, _CachedStorage):
-            self._storage.read_trials_from_remote_storage(self._study_id)
 
         trial_id = self._pop_waiting_trial_id()
         if trial_id is None:
@@ -979,8 +972,8 @@ class Study:
         return len(self.directions) > 1
 
     def _pop_waiting_trial_id(self) -> Optional[int]:
-        for trial in self._storage.get_all_trials(
-            self._study_id, deepcopy=False, states=(TrialState.WAITING,)
+        for trial in self._get_trials(
+            deepcopy=False, states=(TrialState.WAITING,), use_cache=False
         ):
             if not self._storage.set_trial_state_values(trial._trial_id, state=TrialState.RUNNING):
                 continue
